@@ -13,8 +13,41 @@ from collections import Counter
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from llm_client import call_llm_with_smart_routing
-from config import OUTPUT_DIR, THREADS_PER_PROCESS, NUM_PROCESSES
+from config import (
+    OUTPUT_DIR,
+    THREADS_PER_PROCESS,
+    NUM_PROCESSES,
+    EXERCISES_CHAPTER_SUFFIX,
+    LEGACY_EXERCISES_CHAPTER_SUFFIXES,
+)
 from utils_text import normalize_text
+
+
+def _maybe_migrate_legacy_exercises_output(out_dir: Path, chapter_id: str, chapter_name: str) -> None:
+    """
+    If a legacy chapter output exists, rename/copy it to the canonical suffix.
+
+    This avoids downstream mismatches when users have older `_exercises_solved.md` artifacts.
+    """
+    out_file = out_dir / f"{chapter_id}_{chapter_name}{EXERCISES_CHAPTER_SUFFIX}.md"
+    if out_file.exists():
+        return
+
+    for legacy_suffix in LEGACY_EXERCISES_CHAPTER_SUFFIXES:
+        legacy_file = out_dir / f"{chapter_id}_{chapter_name}{legacy_suffix}.md"
+        if not legacy_file.exists():
+            continue
+
+        try:
+            legacy_file.rename(out_file)
+            print(f"[MIGRATE] {legacy_file.name} -> {out_file.name}")
+        except Exception as e:
+            try:
+                out_file.write_text(legacy_file.read_text(encoding="utf-8"), encoding="utf-8")
+                print(f"[MIGRATE] Copied {legacy_file.name} -> {out_file.name} (rename failed: {e})")
+            except Exception:
+                pass
+        return
 
 
 # System prompt for exercise explanation generation
@@ -379,7 +412,8 @@ def assemble_chapter_from_cache(
     cache_dir = base_dir / "cache" / "brush" / f"{chapter_id}_{chapter_name}"
 
     out_dir.mkdir(parents=True, exist_ok=True)
-    out_file = out_dir / f"{chapter_id}_{chapter_name}_exercises_full.md"
+    _maybe_migrate_legacy_exercises_output(out_dir, chapter_id, chapter_name)
+    out_file = out_dir / f"{chapter_id}_{chapter_name}{EXERCISES_CHAPTER_SUFFIX}.md"
 
     if out_file.exists():
         print(f"[SKIP-ASSEMBLE] {out_file} already exists, skipping assembly.")
@@ -608,7 +642,8 @@ def generate_explanations(subject, chapter_id, chapter_name, api_key=None):
     cache_dir.mkdir(parents=True, exist_ok=True)
 
     # Phase 1: Chapter-level caching
-    out_file = out_dir / f"{chapter_id}_{chapter_name}_exercises_full.md"
+    _maybe_migrate_legacy_exercises_output(out_dir, chapter_id, chapter_name)
+    out_file = out_dir / f"{chapter_id}_{chapter_name}{EXERCISES_CHAPTER_SUFFIX}.md"
     if out_file.exists():
         print(f"[SKIP] {out_file} already exists, skipping chapter.")
         return

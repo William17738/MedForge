@@ -65,15 +65,22 @@ class LLMProvider(ABC):
         pass
 
 
+def _normalize_api_key(api_key: Optional[str]) -> Optional[str]:
+    if api_key is None:
+        return None
+    api_key = api_key.strip()
+    return api_key or None
+
+
 class GeminiProvider(LLMProvider):
     """Google Gemini API provider."""
 
-    def __init__(self):
-        self.api_key = os.environ.get("GEMINI_API_KEY")
+    def __init__(self, api_key: Optional[str] = None):
+        self.api_key = _normalize_api_key(api_key) or _normalize_api_key(os.environ.get("GEMINI_API_KEY"))
         self._client = None
 
     def is_available(self) -> bool:
-        return self.api_key is not None
+        return bool(self.api_key)
 
     def _get_client(self):
         if self._client is None:
@@ -95,12 +102,12 @@ class GeminiProvider(LLMProvider):
 class AnthropicProvider(LLMProvider):
     """Anthropic Claude API provider."""
 
-    def __init__(self):
-        self.api_key = os.environ.get("ANTHROPIC_API_KEY")
+    def __init__(self, api_key: Optional[str] = None):
+        self.api_key = _normalize_api_key(api_key) or _normalize_api_key(os.environ.get("ANTHROPIC_API_KEY"))
         self._client = None
 
     def is_available(self) -> bool:
-        return self.api_key is not None
+        return bool(self.api_key)
 
     def _get_client(self):
         if self._client is None:
@@ -124,12 +131,12 @@ class AnthropicProvider(LLMProvider):
 class OpenAIProvider(LLMProvider):
     """OpenAI GPT API provider."""
 
-    def __init__(self):
-        self.api_key = os.environ.get("OPENAI_API_KEY")
+    def __init__(self, api_key: Optional[str] = None):
+        self.api_key = _normalize_api_key(api_key) or _normalize_api_key(os.environ.get("OPENAI_API_KEY"))
         self._client = None
 
     def is_available(self) -> bool:
-        return self.api_key is not None
+        return bool(self.api_key)
 
     def _get_client(self):
         if self._client is None:
@@ -160,11 +167,11 @@ PROVIDERS = {
 }
 
 
-def get_provider(provider_name: str) -> LLMProvider:
+def get_provider(provider_name: str, api_key: Optional[str] = None) -> LLMProvider:
     """Get an LLM provider instance by name."""
     if provider_name not in PROVIDERS:
         raise ValueError(f"Unknown provider: {provider_name}")
-    return PROVIDERS[provider_name]()
+    return PROVIDERS[provider_name](api_key=api_key)
 
 
 # =============================================================================
@@ -261,7 +268,8 @@ def call_llm(
     prompt: str,
     model: str = None,
     provider: str = None,
-    max_retries: int = MAX_RETRIES
+    max_retries: int = MAX_RETRIES,
+    api_key: Optional[str] = None,
 ) -> Optional[str]:
     """
     Call an LLM with automatic retry logic.
@@ -271,6 +279,7 @@ def call_llm(
         model: Model name (defaults to config default)
         provider: Provider name (auto-detected from model if not specified)
         max_retries: Maximum retry attempts
+        api_key: Optional API key override (preferred over environment variables)
 
     Returns:
         Model response text, or None if all retries failed
@@ -289,7 +298,7 @@ def call_llm(
         if not provider:
             provider = "google"  # Default to Gemini
 
-    llm_provider = get_provider(provider)
+    llm_provider = get_provider(provider, api_key=api_key)
 
     if not llm_provider.is_available():
         raise ModelUnavailable(f"Provider {provider} is not configured")
@@ -327,7 +336,9 @@ def call_llm(
 def call_llm_with_smart_routing(
     prompt: str,
     request_id: str = "unknown",
-    api_key: str = None
+    api_key: str = None,
+    *,
+    debug_id: str = None,
 ) -> Optional[str]:
     """
     Call LLM with smart routing and automatic failover.
@@ -341,6 +352,7 @@ def call_llm_with_smart_routing(
         prompt: The prompt to send
         request_id: Identifier for logging/debugging
         api_key: Optional API key override
+        debug_id: Alias for request_id (kept for backwards compatibility)
 
     Returns:
         Model response text
@@ -349,12 +361,14 @@ def call_llm_with_smart_routing(
         QuotaExhausted: If all models are exhausted
     """
     global model_router
+    if debug_id:
+        request_id = debug_id
 
     # Try routing back to primary if conditions are met
     if model_router.should_retry_primary():
         logger.info(f"[{request_id}] Attempting to restore primary model: {DEFAULT_MODEL}")
         try:
-            result = call_llm(prompt, model=DEFAULT_MODEL, max_retries=2)
+            result = call_llm(prompt, model=DEFAULT_MODEL, max_retries=2, api_key=api_key)
             if result:
                 logger.info(f"[{request_id}] Primary model restored successfully")
                 model_router.mark_primary_success()
@@ -381,7 +395,7 @@ def call_llm_with_smart_routing(
                     provider = fm["provider"]
                     break
 
-            result = call_llm(prompt, model=model, provider=provider, max_retries=RETRIES_PER_MODEL)
+            result = call_llm(prompt, model=model, provider=provider, max_retries=RETRIES_PER_MODEL, api_key=api_key)
 
             if result:
                 model_router.switch_to_fallback(model)

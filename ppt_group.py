@@ -10,9 +10,10 @@ import textwrap
 from collections import Counter
 from pathlib import Path
 from typing import Optional, List
-
+ 
 from config import OUTPUT_DIR, PPT_DIR
 from llm_client import call_llm_with_smart_routing
+from utils_fs import atomic_write_text
 
 
 # System prompt for lecture note generation
@@ -366,5 +367,5 @@ Please generate comprehensive lecture notes in Markdown format.
         print(f"[PPT] Dedup: {original_len} -> {len(response)} chars")
 
     # Write output
-    out_path.write_text(response, encoding="utf-8")
+    atomic_write_text(out_path, response, encoding="utf-8")
     print(f"[PPT] Generated: {out_name} ({len(response)} chars)")

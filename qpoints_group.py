@@ -11,6 +11,7 @@ from pathlib import Path
 
 from llm_client import call_llm_with_smart_routing
 from config import OUTPUT_DIR
+from utils_fs import atomic_write_text
 from utils_text import normalize_text
 
 
@@ -156,6 +157,6 @@ Please generate a key points summary for this chapter, including the question ma
     _check_question_coverage(response, questions, debug_id)
 
     # Write output
-    out_file.write_text(response, encoding="utf-8")
+    atomic_write_text(out_file, response, encoding="utf-8")
     print(f"[QPOINTS] Generated: {out_file.name} ({len(response)} chars)")
     return out_file

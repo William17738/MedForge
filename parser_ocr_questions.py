@@ -9,8 +9,10 @@ import re
 import json
 import concurrent.futures
 from pathlib import Path
-
+ 
 from config import OUTPUT_DIR
+from status_manager import SubjectStatusManager
+from utils_fs import atomic_write_json
 from utils_text import normalize_text
 from llm_client import call_llm_with_smart_routing
 
@@ -327,7 +329,7 @@ def get_output_name(filename: str) -> str:
         return Path(filename).stem + "_questions.json"
 
 
-def process_single_file(f: Path, base_dir: Path, struct_dir: Path) -> None:
+def process_single_file(f: Path, base_dir: Path, struct_dir: Path) -> Path | None:
     """
     Process a single file: parse questions and optionally use LLM repair.
     """
@@ -364,11 +366,12 @@ def process_single_file(f: Path, base_dir: Path, struct_dir: Path) -> None:
             if not any_llm_success:
                 print(f"[LLM] {f.name} all re-segmentation attempts failed, using rule-based result, {len(qs)} questions.")
 
-        with open(out_path, 'w', encoding='utf-8') as jf:
-            json.dump(qs, jf, ensure_ascii=False, indent=2)
+        atomic_write_json(out_path, qs, ensure_ascii=False, indent=2)
         print(f"Saved {len(qs)} questions to {out_name}")
+        return out_path
     except Exception as e:
         print(f"Error parsing {f.name}: {e}")
+        return None
 
 
 def run_for_subject(subject: str) -> None:
@@ -379,34 +382,61 @@ def run_for_subject(subject: str) -> None:
     raw_dir = base_dir / "raw"
     struct_dir = base_dir / "questions_structured"
     struct_dir.mkdir(parents=True, exist_ok=True)
-
-    if not raw_dir.exists():
-        print(f"Raw dir not found: {raw_dir}")
-        return
-
-    # Try to find exercise files
-    files = list(raw_dir.glob("*_exercises.txt"))
-
-    # Fallback to guide_full files
-    if not files:
-        print(f"[INFO] No '*_exercises.txt' found for subject '{subject}'. Falling back to '*_guide_full.txt'.")
-        files = list(raw_dir.glob("*_guide_full.txt"))
-        if not files:
-            print(f"[WARN] No suitable source files ('*_exercises.txt' or '*_guide_full.txt') found for subject '{subject}'.")
+    manager = SubjectStatusManager(subject)
+    manager.update_pipeline_status(questions_structured_state="in_progress")
+ 
+    try:
+        if not raw_dir.exists():
+            print(f"Raw dir not found: {raw_dir}")
+            manager.update_pipeline_status(
+                questions_structured_state="error",
+                questions_structured_error=f"Raw dir not found: {raw_dir}",
+                questions_structured_inputs=0,
+                questions_structured_outputs=0,
+            )
             return
 
-    print(f"Found {len(files)} files to process for subject '{subject}'")
+        # Try to find exercise files
+        files = list(raw_dir.glob("*_exercises.txt"))
 
-    # Use ThreadPoolExecutor for parallel processing
-    MAX_WORKERS = 10
-    with concurrent.futures.ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
-        futures = {executor.submit(process_single_file, f, base_dir, struct_dir): f for f in files}
-        for future in concurrent.futures.as_completed(futures):
-            f = futures[future]
-            try:
-                future.result()
-            except Exception as e:
-                print(f"Error processing {f.name}: {e}")
+        # Fallback to guide_full files
+        if not files:
+            print(f"[INFO] No '*_exercises.txt' found for subject '{subject}'. Falling back to '*_guide_full.txt'.")
+            files = list(raw_dir.glob("*_guide_full.txt"))
+            if not files:
+                print(f"[WARN] No suitable source files ('*_exercises.txt' or '*_guide_full.txt') found for subject '{subject}'.")
+                manager.update_pipeline_status(
+                    questions_structured_state="done",
+                    questions_structured_inputs=0,
+                    questions_structured_outputs=0,
+                )
+                return
+
+        print(f"Found {len(files)} files to process for subject '{subject}'")
+
+        # Use ThreadPoolExecutor for parallel processing
+        MAX_WORKERS = 10
+        successes = 0
+        with concurrent.futures.ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
+            futures = {executor.submit(process_single_file, f, base_dir, struct_dir): f for f in files}
+            for future in concurrent.futures.as_completed(futures):
+                f = futures[future]
+                try:
+                    if future.result():
+                        successes += 1
+                except Exception as e:
+                    print(f"Error processing {f.name}: {e}")
+        manager.update_pipeline_status(
+            questions_structured_state="done",
+            questions_structured_inputs=len(files),
+            questions_structured_outputs=successes,
+        )
+    except Exception as e:
+        manager.update_pipeline_status(
+            questions_structured_state="error",
+            questions_structured_error=str(e),
+        )
+        raise
 
 
 if __name__ == "__main__":

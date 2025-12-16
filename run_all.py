@@ -7,10 +7,12 @@ Coordinates preprocessing, three processing pipelines, and final assembly.
 
 import json
 import sys
-from concurrent.futures import ProcessPoolExecutor, as_completed
+import time
+from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 from config import OUTPUT_DIR, SUBJECT_CONFIG_FILE, NUM_PROCESSES
+from status_manager import SubjectStatusManager
 from preprocessor import main as preprocess_main
 from parser_ocr_questions import run_for_subject
 from brush_group import run_subject_questions_global
@@ -48,11 +50,17 @@ def run_questions_pipeline(subjects: list[str]) -> None:
     # Parse all questions first
     for subject in subjects:
         print(f"[QUESTIONS] Parsing questions for: {subject}")
-        run_for_subject(subject)
+        try:
+            run_for_subject(subject)
+        except Exception as e:
+            print(f"[QUESTIONS] Parsing failed for {subject}: {e}")
 
     # Generate explanations (uses global thread pool internally)
     for subject in subjects:
-        run_subject_questions_global(subject)
+        try:
+            run_subject_questions_global(subject)
+        except Exception as e:
+            print(f"[QUESTIONS] Explanation generation failed for {subject}: {e}")
 
 
 def run_keypoints_pipeline(subjects: list[str]) -> None:
@@ -62,6 +70,7 @@ def run_keypoints_pipeline(subjects: list[str]) -> None:
     Generate knowledge point summaries based on exercise content.
     """
     print("=== Pipeline 2: Key Points Generation ===")
+    _wait_for_questions_structured(subjects, label="KEYPOINTS")
 
     tasks = []
     for subject in subjects:
@@ -97,6 +106,7 @@ def run_ppt_pipeline(subjects: list[str]) -> None:
     Generate integrated lecture notes combining PPT with textbook content.
     """
     print("=== Pipeline 3: PPT Integration ===")
+    _wait_for_questions_structured(subjects, label="PPT")
 
     tasks = []
     for subject in subjects:
@@ -150,6 +160,53 @@ def discover_subjects() -> list[str]:
     return subjects
 
 
+def _wait_for_questions_structured(
+    subjects: list[str],
+    *,
+    label: str,
+    timeout_s: float = 1800.0,
+    poll_interval_s: float = 2.0,
+) -> None:
+    """
+    Avoid a race where downstream pipelines start before question JSONs are produced.
+
+    Waits until each subject reports a terminal parsing state ("done"/"error") in
+    `output/<subject>/.status/pipeline.json`.
+    """
+    if not subjects:
+        return
+
+    pending = set(subjects)
+    start = time.monotonic()
+    last_log = 0.0
+
+    while pending:
+        for subject in list(pending):
+            state = (
+                SubjectStatusManager(subject)
+                .get_pipeline_status()
+                .get("questions_structured_state")
+            )
+            if state in {"done", "error"}:
+                pending.remove(subject)
+
+        if not pending:
+            return
+
+        elapsed = time.monotonic() - start
+        if elapsed >= timeout_s:
+            print(f"[{label}] WARN: Timeout waiting for questions_structured: {sorted(pending)}")
+            return
+
+        if elapsed - last_log >= 10.0:
+            sample = ", ".join(sorted(pending)[:5])
+            suffix = "..." if len(pending) > 5 else ""
+            print(f"[{label}] Waiting for question parsing ({len(pending)}): {sample}{suffix}")
+            last_log = elapsed
+
+        time.sleep(poll_interval_s)
+
+
 def main():
     """Main entry point for the processing pipeline."""
     print("=" * 60)
@@ -179,6 +236,13 @@ def main():
             print(f"[ERROR] Subject '{target}' not found")
             return
 
+    # Reset per-subject parsing state to avoid stale "done" from previous runs
+    for subject in subjects:
+        SubjectStatusManager(subject).update_pipeline_status(
+            questions_structured_state="pending",
+            questions_structured_error=None,
+        )
+
     # Step 2-4: Run all three pipelines in parallel
     print("\n=== Starting Parallel Pipelines ===")
     pipelines = [
@@ -187,7 +251,9 @@ def main():
         ("PPT", run_ppt_pipeline),
     ]
 
-    with ProcessPoolExecutor(max_workers=3) as executor:
+    # NOTE: Use threads here to avoid nested process pools on Windows.
+    # The key points and PPT pipelines already use ProcessPoolExecutor internally.
+    with ThreadPoolExecutor(max_workers=len(pipelines)) as executor:
         futures = {
             executor.submit(func, subjects): name
             for name, func in pipelines

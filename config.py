@@ -22,6 +22,17 @@ TEXTBOOK_DIR = DATA_DIR / "textbooks"
 EXERCISES_DIR = DATA_DIR / "exercises"
 
 # =============================================================================
+# Output Naming
+# =============================================================================
+
+# Chapter-level markdown suffix (without extension) for solved exercises output.
+# Keep as a single source of truth to avoid downstream mismatches.
+EXERCISES_CHAPTER_SUFFIX = "_exercises_full"
+
+# Backward-compatible suffixes that may exist from older versions.
+LEGACY_EXERCISES_CHAPTER_SUFFIXES = ("_exercises_solved",)
+
+# =============================================================================
 # API Configuration
 # =============================================================================
 

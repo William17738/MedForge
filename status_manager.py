@@ -10,6 +10,7 @@ import json
 from datetime import datetime
 from pathlib import Path
 from config import OUTPUT_DIR
+from utils_fs import atomic_write_json, file_lock
 
 
 class SubjectStatusManager:
@@ -24,7 +25,6 @@ class SubjectStatusManager:
     def __init__(self, subject_name: str):
         self.subject_dir = OUTPUT_DIR / subject_name
         self.status_dir = self.subject_dir / ".status"
-        self.status_dir.mkdir(parents=True, exist_ok=True)
 
     def _read_status(self, file_path: Path) -> dict:
         """Read status from a JSON file."""
@@ -36,10 +36,7 @@ class SubjectStatusManager:
     def _write_status(self, file_path: Path, data: dict) -> None:
         """Write status to a JSON file."""
         try:
-            file_path.write_text(
-                json.dumps(data, ensure_ascii=False, indent=2),
-                encoding="utf-8",
-            )
+            atomic_write_json(file_path, data, ensure_ascii=False, indent=2)
         except Exception as e:
             print(f"[WARN] Failed to write status to {file_path}: {e}")
 
@@ -50,12 +47,15 @@ class SubjectStatusManager:
 
     def set_preprocess_status(self, source_hash: str, **metadata) -> None:
         """Update preprocessing status with source hash and metadata."""
-        data = {
-            "source_hash": source_hash,
-            "updated_at": datetime.now().isoformat(timespec="seconds"),
-        }
-        data.update(metadata)
-        self._write_status(self.status_dir / "preprocess.json", data)
+        path = self.status_dir / "preprocess.json"
+        lock_path = path.with_suffix(path.suffix + ".lock")
+        with file_lock(lock_path):
+            data = {
+                "source_hash": source_hash,
+                "updated_at": datetime.now().isoformat(timespec="seconds"),
+            }
+            data.update(metadata)
+            self._write_status(path, data)
 
     # Pipeline processing status (pipeline.json)
     def get_pipeline_status(self) -> dict:
@@ -65,7 +65,9 @@ class SubjectStatusManager:
     def update_pipeline_status(self, **kwargs) -> None:
         """Update pipeline processing status."""
         path = self.status_dir / "pipeline.json"
-        data = self._read_status(path)
-        data.update(kwargs)
-        data["updated_at"] = datetime.now().isoformat(timespec="seconds")
-        self._write_status(path, data)
+        lock_path = path.with_suffix(path.suffix + ".lock")
+        with file_lock(lock_path):
+            data = self._read_status(path)
+            data.update(kwargs)
+            data["updated_at"] = datetime.now().isoformat(timespec="seconds")
+            self._write_status(path, data)

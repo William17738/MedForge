@@ -11,7 +11,7 @@ Produces three output types per subject:
 from __future__ import annotations
 import re
 from pathlib import Path
-from config import OUTPUT_DIR
+from config import OUTPUT_DIR, EXERCISES_CHAPTER_SUFFIX, LEGACY_EXERCISES_CHAPTER_SUFFIXES
 
 
 def _sorted_chapter_files(chapter_dir: Path, suffix: str) -> list[Path]:
@@ -32,6 +32,29 @@ def _sorted_chapter_files(chapter_dir: Path, suffix: str) -> list[Path]:
         return chapter_num, stem
 
     return sorted(files, key=sort_key)
+
+
+def _sorted_chapter_files_multi(chapter_dir: Path, suffixes: tuple[str, ...]) -> list[Path]:
+    """
+    Return chapter files matching any suffix, sorted by chapter number.
+
+    If multiple files map to the same base stem (stem without suffix), earlier suffixes win.
+    """
+    files_by_base: dict[str, Path] = {}
+
+    for suffix in suffixes:
+        for path in chapter_dir.glob(f"*{suffix}.md"):
+            stem = path.stem
+            base_stem = stem[:-len(suffix)] if stem.endswith(suffix) else stem
+            files_by_base.setdefault(base_stem, path)
+
+    def sort_key(item: tuple[str, Path]):
+        base_stem, _path = item
+        match = re.match(r"(\d+)", base_stem)
+        chapter_num = int(match.group(1)) if match else 999
+        return chapter_num, base_stem
+
+    return [path for _base, path in sorted(files_by_base.items(), key=sort_key)]
 
 
 def assemble_subject(subject: str) -> None:
@@ -93,15 +116,22 @@ def assemble_subject(subject: str) -> None:
         print(f"[ASSEMBLE] {subject}: No key points files found")
 
     # 3) Exercises: Complete exercise collection with solutions
-    exercise_files = _sorted_chapter_files(chapter_dir, "_exercises_solved")
+    exercises_suffixes = (EXERCISES_CHAPTER_SUFFIX,) + tuple(LEGACY_EXERCISES_CHAPTER_SUFFIXES)
+    exercise_files = _sorted_chapter_files_multi(chapter_dir, exercises_suffixes)
     if exercise_files:
         output_path = base_dir / f"{subject}_exercises_complete.md"
         parts = [f"# {subject} - Complete Exercise Collection\n"]
 
         for file in exercise_files:
-            name = file.name
-            chapter_id = name.split("_", 1)[0]
-            chapter_name = name.split("_exercises_solved", 1)[0]
+            stem = file.stem
+            base_stem = stem
+            for suffix in exercises_suffixes:
+                if base_stem.endswith(suffix):
+                    base_stem = base_stem.removesuffix(suffix)
+                    break
+
+            chapter_id = base_stem.split("_", 1)[0]
+            chapter_name = base_stem
             if chapter_name.startswith(chapter_id + "_"):
                 chapter_name = chapter_name[len(chapter_id) + 1:]
 
