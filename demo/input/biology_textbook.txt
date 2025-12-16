@@ -1,0 +1,49 @@
+Chapter 1: Cell Biology
+
+Cells are the fundamental units of life. All living organisms are composed of one or more cells, and all cells arise from pre-existing cells through cell division.
+
+There are two main types of cells: prokaryotic and eukaryotic. Prokaryotic cells (bacteria and archaea) lack a membrane-bound nucleus and other organelles. Eukaryotic cells (plants, animals, fungi) contain a nucleus and membrane-bound organelles.
+
+Key organelles in eukaryotic cells include:
+- Mitochondria: The powerhouse of the cell, responsible for ATP production through cellular respiration
+- Ribosomes: Sites of protein synthesis, found free in cytoplasm or attached to rough ER
+- Endoplasmic Reticulum (ER): Rough ER processes proteins, smooth ER synthesizes lipids
+- Golgi Apparatus: Modifies, packages, and ships proteins to their destinations
+- Lysosomes: Contain digestive enzymes for breaking down cellular waste
+
+The cell membrane is a phospholipid bilayer that regulates what enters and exits the cell. It contains embedded proteins that serve as channels, receptors, and transporters.
+
+Chapter 2: Molecular Genetics
+
+DNA (deoxyribonucleic acid) stores genetic information in all living organisms. The structure of DNA is a double helix, discovered by Watson and Crick in 1953.
+
+The Central Dogma of molecular biology describes the flow of genetic information:
+- DNA replication: DNA -> DNA (copying genetic material before cell division)
+- Transcription: DNA -> RNA (creating messenger RNA from DNA template)
+- Translation: RNA -> Protein (ribosomes read mRNA to build proteins)
+
+Mutations are changes in DNA sequence that can occur spontaneously or due to environmental factors:
+- Silent mutations: No change in amino acid sequence
+- Missense mutations: Single amino acid change
+- Nonsense mutations: Premature stop codon, truncated protein
+- Frameshift mutations: Insertion or deletion shifts reading frame
+
+Gene expression is regulated at multiple levels including transcription factors, epigenetic modifications, and post-translational modifications.
+
+Chapter 3: Cell Division
+
+Cell division is essential for growth, repair, and reproduction. There are two main types:
+
+Mitosis produces two identical daughter cells for growth and repair:
+1. Prophase: Chromosomes condense, nuclear envelope breaks down
+2. Metaphase: Chromosomes align at cell equator
+3. Anaphase: Sister chromatids separate and move to poles
+4. Telophase: Nuclear envelopes reform, chromosomes decondense
+5. Cytokinesis: Cytoplasm divides
+
+Meiosis produces four haploid gametes for sexual reproduction:
+- Meiosis I: Homologous chromosomes separate (reduction division)
+- Meiosis II: Sister chromatids separate (similar to mitosis)
+- Crossing over during Prophase I creates genetic diversity
+
+The cell cycle is regulated by cyclins and cyclin-dependent kinases (CDKs). Checkpoints ensure proper DNA replication and chromosome segregation.

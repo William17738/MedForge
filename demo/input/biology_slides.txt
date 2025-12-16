@@ -1,0 +1,76 @@
+Lecture 1: Cell Biology Fundamentals
+
+Slide 1: Introduction to Cells
+- Cells are the basic unit of life
+- All organisms composed of cells
+- Cell theory: all cells from pre-existing cells
+
+Slide 2: Prokaryotes vs Eukaryotes
+- Prokaryotes: No nucleus, no membrane-bound organelles
+- Examples: Bacteria, Archaea
+- Eukaryotes: Nucleus present, organelles present
+- Examples: Animals, Plants, Fungi
+
+Slide 3: Key Organelles
+- Mitochondria: ATP production (cellular respiration)
+- Ribosomes: Protein synthesis
+- ER: Rough (proteins), Smooth (lipids)
+- Golgi: Protein modification and packaging
+- Lysosomes: Cellular digestion
+
+Slide 4: Cell Membrane Structure
+- Phospholipid bilayer
+- Embedded proteins (channels, receptors)
+- Selective permeability
+- Fluid mosaic model
+
+Lecture 2: Molecular Genetics
+
+Slide 5: DNA Structure
+- Double helix (Watson & Crick, 1953)
+- Nucleotides: A-T, G-C base pairing
+- Sugar-phosphate backbone
+- Antiparallel strands
+
+Slide 6: Central Dogma
+- DNA -> DNA (Replication)
+- DNA -> RNA (Transcription)
+- RNA -> Protein (Translation)
+- One-way flow of information
+
+Slide 7: Types of Mutations
+- Silent: No amino acid change
+- Missense: One amino acid changed
+- Nonsense: Premature stop codon
+- Frameshift: Reading frame shifted
+
+Slide 8: Gene Regulation
+- Transcription factors
+- Promoters and enhancers
+- Epigenetic modifications
+- Post-translational control
+
+Lecture 3: Cell Division
+
+Slide 9: Mitosis Overview
+- Purpose: Growth and repair
+- Result: 2 identical diploid cells
+- Stages: PMAT (Prophase, Metaphase, Anaphase, Telophase)
+
+Slide 10: Mitosis Stages Detail
+- Prophase: Chromosomes condense
+- Metaphase: Align at equator
+- Anaphase: Chromatids separate
+- Telophase: Nuclear envelope reforms
+
+Slide 11: Meiosis Overview
+- Purpose: Gamete production
+- Result: 4 haploid cells
+- Two divisions: Meiosis I and II
+- Genetic diversity through crossing over
+
+Slide 12: Cell Cycle Regulation
+- Cyclins and CDKs control progression
+- Checkpoints: G1, S, G2, M
+- Ensure proper replication
+- Cancer: checkpoint failure
