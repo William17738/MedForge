@@ -227,7 +227,7 @@ class ModelRouter:
 
             return False
 
-    def mark_primary_success(self):
+    def mark_primary_success(self) -> None:
         """Called when primary model succeeds."""
         with self._lock:
             self.current_model = DEFAULT_MODEL
@@ -236,14 +236,14 @@ class ModelRouter:
             self.primary_fail_count = 0
             self.requests_since_fallback = 0
 
-    def mark_primary_failed(self):
+    def mark_primary_failed(self) -> None:
         """Called when primary model fails."""
         with self._lock:
             self.last_primary_attempt = time.time()
             self.primary_fail_count += 1
             self.requests_since_fallback = 0
 
-    def switch_to_fallback(self, model: str):
+    def switch_to_fallback(self, model: str) -> None:
         """Switch to a fallback model."""
         with self._lock:
             if self.current_model != model:
@@ -268,8 +268,8 @@ model_router = ModelRouter()
 
 def call_llm(
     prompt: str,
-    model: str = None,
-    provider: str = None,
+    model: Optional[str] = None,
+    provider: Optional[str] = None,
     max_retries: int = MAX_RETRIES,
     api_key: Optional[str] = None,
 ) -> Optional[str]:
@@ -338,9 +338,9 @@ def call_llm(
 def call_llm_with_smart_routing(
     prompt: str,
     request_id: str = "unknown",
-    api_key: str = None,
+    api_key: Optional[str] = None,
     *,
-    debug_id: str = None,
+    debug_id: Optional[str] = None,
 ) -> Optional[str]:
     """
     Call LLM with smart routing and automatic failover.

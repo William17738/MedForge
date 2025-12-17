@@ -11,6 +11,7 @@ import random
 from pathlib import Path
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from typing import Any, Dict, List, Optional, Tuple, cast
 
 from llm_client import call_llm_with_smart_routing
 from config import (
@@ -101,7 +102,7 @@ Please follow the Exercise Processing Protocol:
 """
 
 
-def validate_brush_result(data: dict, q: dict) -> tuple[bool, str]:
+def validate_brush_result(data: Optional[Dict[str, Any]], q: Dict[str, Any]) -> Tuple[bool, str]:
     """
     Validate generated exercise result for correctness.
 
@@ -146,7 +147,54 @@ def validate_brush_result(data: dict, q: dict) -> tuple[bool, str]:
     return True, ""
 
 
-def extract_json_block(raw: str) -> dict | None:
+def _extract_markdown_block(response: str) -> Optional[str]:
+    text = response.strip()
+    if not text.startswith("```"):
+        return None
+
+    lines = text.splitlines()
+    lines = [ln for ln in lines if not ln.strip().startswith("```")]
+    return "\n".join(lines).strip()
+
+
+def _try_repair_json(text: str) -> Optional[str]:
+    try:
+        json.loads(text)
+        return text
+    except json.JSONDecodeError:
+        pass
+
+    for match in re.finditer(r"\{.*?\}", text, flags=re.DOTALL):
+        snippet = match.group(0)
+        try:
+            json.loads(snippet)
+            return snippet
+        except json.JSONDecodeError:
+            continue
+
+    return None
+
+
+def _parse_llm_response(response: str, expect_json: bool) -> tuple[str, bool]:
+    text = response.strip()
+    if not text:
+        return "", False
+
+    markdown_block = _extract_markdown_block(text)
+    if markdown_block is not None:
+        text = markdown_block
+
+    if not expect_json:
+        return text, True
+
+    repaired = _try_repair_json(text)
+    if repaired is None:
+        return "", False
+
+    return repaired, True
+
+
+def extract_json_block(raw: str) -> Optional[Dict[str, Any]]:
     """
     Extract the first valid JSON object from model output.
 
@@ -157,32 +205,20 @@ def extract_json_block(raw: str) -> dict | None:
     if not raw:
         return None
 
-    text = raw.strip()
+    json_text, parsed = _parse_llm_response(raw, expect_json=True)
+    if not parsed:
+        return None
 
-    # Remove ```json ``` code block wrappers
-    if text.startswith("```"):
-        lines = text.splitlines()
-        lines = [ln for ln in lines if not ln.strip().startswith("```")]
-        text = "\n".join(lines).strip()
-
-    # 1) Try parsing entire text
-    try:
-        return json.loads(text)
-    except json.JSONDecodeError:
-        pass
-
-    # 2) Try finding { ... } fragments
-    for m in re.finditer(r"\{.*?\}", text, flags=re.DOTALL):
-        snippet = m.group(0)
-        try:
-            return json.loads(snippet)
-        except json.JSONDecodeError:
-            continue
-
-    return None
+    return cast(Dict[str, Any], json.loads(json_text))
 
 
-def ask_llm_with_repair(q: dict, tb_context: str, subject: str, chapter_name: str, api_key=None):
+def ask_llm_with_repair(
+    q: Dict[str, Any],
+    tb_context: str,
+    subject: str,
+    chapter_name: str,
+    api_key: Optional[str] = None,
+) -> Dict[str, Any]:
     """
     LLM call with error correction retry mechanism.
     """
@@ -254,7 +290,8 @@ Please generate a JSON solution following the Exercise Processing Protocol.
             continue
 
         last_raw_resp = resp
-        data = extract_json_block(resp)
+        json_text, parsed = _parse_llm_response(resp, expect_json=True)
+        data = cast(Dict[str, Any], json.loads(json_text)) if parsed else None
         ok, err_msg = validate_brush_result(data, q)
         if ok:
             return data
@@ -283,7 +320,7 @@ BAD_EXPL_PATTERNS = [
 ]
 
 
-def is_structurally_good(q: dict) -> tuple[bool, list[str]]:
+def is_structurally_good(q: Dict[str, Any]) -> Tuple[bool, List[str]]:
     """
     Structural filter: check question stem and options.
 
@@ -335,7 +372,7 @@ def has_basic_semantics(expl: str, final_answer: str) -> bool:
     return True
 
 
-def is_explanation_good(data: dict, q: dict) -> tuple[bool, list[str]]:
+def is_explanation_good(data: Dict[str, Any], q: Dict[str, Any]) -> Tuple[bool, List[str]]:
     """
     Explanation quality filter: check LLM output quality.
     """
@@ -356,7 +393,7 @@ def is_explanation_good(data: dict, q: dict) -> tuple[bool, list[str]]:
     return (len(reasons) == 0, reasons)
 
 
-def classify_question(q: dict, brush_data: dict) -> tuple[str, list[str]]:
+def classify_question(q: Dict[str, Any], brush_data: Dict[str, Any]) -> Tuple[str, List[str]]:
     """
     Final classification: good/bad question.
     """
@@ -383,9 +420,9 @@ def process_single_question(
     chapter_id: str,
     chapter_name: str,
     tb_context: str,
-    q: dict,
+    q: Dict[str, Any],
     cache_dir: Path,
-) -> tuple[int, bool, str]:
+) -> Tuple[int, bool, str]:
     """
     Process a single question:
     - Call LLM
@@ -678,7 +715,12 @@ def run_subject_questions_global(subject: str) -> None:
     print(f"[GLOBAL] {subject} subject-wide exercise processing + chapter assembly complete.")
 
 
-def generate_explanations(subject, chapter_id, chapter_name, api_key=None):
+def generate_explanations(
+    subject: str,
+    chapter_id: str,
+    chapter_name: str,
+    api_key: Optional[str] = None,
+) -> None:
     """
     Generate explanations for a single chapter.
     """
@@ -743,7 +785,7 @@ def generate_explanations(subject, chapter_id, chapter_name, api_key=None):
 
     print(f"[{chapter_name}] Total: {len(questions)}, Cached: {len(done_ids)}, Pending: {len(pending_questions)} (parallel {THREADS_PER_PROCESS})...")
 
-    def handle_question(q: dict):
+    def handle_question(q: Dict[str, Any]) -> Tuple[int, bool]:
         q_id, success, err = process_single_question(
             subject,
             chapter_id,

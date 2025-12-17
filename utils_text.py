@@ -6,6 +6,7 @@ Text normalization and cleaning utilities for document processing.
 
 import unicodedata
 import re
+from typing import Optional, Tuple
 
 
 TRUNCATION_MARKER = "[...truncated]"
@@ -48,7 +49,7 @@ def normalize_text(text: str) -> str:
     return text.strip()
 
 
-def truncate_text(text: str, max_chars: int, marker: str = TRUNCATION_MARKER) -> tuple[str, bool]:
+def truncate_text(text: str, max_chars: Optional[int], marker: str = TRUNCATION_MARKER) -> Tuple[str, bool]:
     """
     Truncate text to a maximum character length.
 
@@ -72,7 +73,7 @@ def truncate_text(text: str, max_chars: int, marker: str = TRUNCATION_MARKER) ->
     return text[: max_chars - len(marker)] + marker, True
 
 
-def extract_chapter_number(text: str) -> int | None:
+def extract_chapter_number(text: str) -> Optional[int]:
     """
     Extract chapter number from text.
 

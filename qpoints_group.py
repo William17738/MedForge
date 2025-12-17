@@ -8,6 +8,7 @@ Uses LLM to extract and organize important concepts from questions.
 import json
 import re
 from pathlib import Path
+from typing import Optional
 
 from llm_client import call_llm_with_smart_routing
 from config import OUTPUT_DIR, MAX_PROMPT_CHARS
@@ -79,8 +80,8 @@ def generate_question_based_points(
     subject: str,
     chapter_id: str,
     chapter_name: str,
-    api_key: str | None = None,
-) -> Path | None:
+    api_key: Optional[str] = None,
+) -> Optional[Path]:
     """
     Generate key points summary from questions and textbook content.
 
