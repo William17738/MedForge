@@ -15,8 +15,10 @@ from abc import ABC, abstractmethod
 from config import (
     DEFAULT_MODEL, FALLBACK_MODELS, RETRIES_PER_MODEL,
     QUOTA_KEYWORDS, ROUTING_CONFIG, MAX_RETRIES, RETRY_DELAY,
-    LOG_DIR
+    LOG_DIR,
+    MAX_PROMPT_CHARS,
 )
+from utils_text import truncate_text
 
 # =============================================================================
 # Logging Setup
@@ -27,7 +29,7 @@ logger.setLevel(logging.INFO)
 
 if not logger.handlers:
     LOG_DIR.mkdir(parents=True, exist_ok=True)
-    file_handler = logging.FileHandler(LOG_DIR / "llm_client.log", encoding="utf-8")
+    file_handler = logging.FileHandler(LOG_DIR / f"llm_client_{os.getpid()}.log", encoding="utf-8")
     formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
     file_handler.setFormatter(formatter)
     logger.addHandler(file_handler)
@@ -363,6 +365,14 @@ def call_llm_with_smart_routing(
     global model_router
     if debug_id:
         request_id = debug_id
+
+    prompt_len = len(prompt) if prompt else 0
+    if prompt and prompt_len > MAX_PROMPT_CHARS:
+        prompt, _ = truncate_text(prompt, MAX_PROMPT_CHARS)
+        logger.warning(
+            f"[{request_id}] Prompt truncated {prompt_len} -> {len(prompt)} chars "
+            f"(limit {MAX_PROMPT_CHARS})"
+        )
 
     # Try routing back to primary if conditions are met
     if model_router.should_retry_primary():

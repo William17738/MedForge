@@ -11,9 +11,24 @@ from collections import Counter
 from pathlib import Path
 from typing import Optional, List
  
-from config import OUTPUT_DIR, PPT_DIR
+from config import OUTPUT_DIR, PPT_DIR, MAX_PROMPT_CHARS
 from llm_client import call_llm_with_smart_routing
 from utils_fs import atomic_write_text
+from utils_text import truncate_text
+
+
+MIN_VALID_CACHE_BYTES = 100
+
+
+def _is_valid_markdown_cache(path: Path) -> bool:
+    try:
+        if path.stat().st_size < MIN_VALID_CACHE_BYTES:
+            return False
+        with path.open("r", encoding="utf-8") as handle:
+            head = handle.read(4096).lstrip("\ufeff")
+        return head.strip().startswith("#")
+    except Exception:
+        return False
 
 
 # System prompt for lecture note generation
@@ -297,9 +312,16 @@ def generate_ppt_notes(
     out_path = out_dir / out_name
 
     # Chapter-level caching
-    if out_path.exists() and out_path.stat().st_size > 0:
-        print(f"[PPT] SKIP: {out_name} already exists")
-        return
+    if out_path.exists():
+        if _is_valid_markdown_cache(out_path):
+            print(f"[PPT] SKIP: {out_name} valid cache exists")
+            return
+
+        print(f"[PPT] WARN: Invalid cache {out_name}, removing and reprocessing")
+        try:
+            out_path.unlink()
+        except Exception as e:
+            print(f"[PPT] WARN: Failed to remove invalid cache {out_name}: {e}")
 
     # Load textbook content
     textbook_text = ""
@@ -329,6 +351,49 @@ def generate_ppt_notes(
     # Build prompt
     debug_id = f"PPT-{subject}-{chap_id_str}"
 
+    textbook_text_for_prompt = (
+        textbook_text
+        or "(Textbook content not available - generate notes based on PPT only)"
+    )
+
+    prompt_template = """
+Below are the OCR text materials for this chapter. Please generate integrated lecture notes.
+
+[PPT Slides OCR Text]
+{ppt_text}
+
+[Textbook OCR Text]
+{textbook_text}
+
+Please generate comprehensive lecture notes in Markdown format.
+"""
+    overhead_prompt = (
+        PPT_SYSTEM_PROMPT
+        + "\n\n"
+        + textwrap.dedent(prompt_template.format(ppt_text="", textbook_text="")).strip()
+    )
+    remaining_budget = max(0, MAX_PROMPT_CHARS - len(overhead_prompt))
+
+    if textbook_text:
+        ppt_budget = int(remaining_budget * 0.55)
+        tb_budget = max(0, remaining_budget - ppt_budget)
+    else:
+        tb_budget = min(len(textbook_text_for_prompt), remaining_budget)
+        ppt_budget = max(0, remaining_budget - tb_budget)
+
+    ppt_len = len(ppt_text)
+    ppt_text, ppt_truncated = truncate_text(ppt_text, ppt_budget)
+    if ppt_truncated:
+        print(f"[PPT] WARN: {debug_id} truncated ppt_text {ppt_len} -> {len(ppt_text)} chars")
+
+    tb_len = len(textbook_text_for_prompt)
+    textbook_text_for_prompt, tb_truncated = truncate_text(textbook_text_for_prompt, tb_budget)
+    if tb_truncated:
+        print(
+            f"[PPT] WARN: {debug_id} truncated textbook_text "
+            f"{tb_len} -> {len(textbook_text_for_prompt)} chars"
+        )
+
     user_prompt = f"""
 Below are the OCR text materials for this chapter. Please generate integrated lecture notes.
 
@@ -336,12 +401,19 @@ Below are the OCR text materials for this chapter. Please generate integrated le
 {ppt_text}
 
 [Textbook OCR Text]
-{textbook_text or "(Textbook content not available - generate notes based on PPT only)"}
+{textbook_text_for_prompt}
 
 Please generate comprehensive lecture notes in Markdown format.
 """
 
     full_prompt = PPT_SYSTEM_PROMPT + "\n\n" + textwrap.dedent(user_prompt).strip()
+    prompt_len = len(full_prompt)
+    full_prompt, prompt_truncated = truncate_text(full_prompt, MAX_PROMPT_CHARS)
+    if prompt_truncated:
+        print(
+            f"[PPT] WARN: {debug_id} truncated full_prompt "
+            f"{prompt_len} -> {len(full_prompt)} chars (limit {MAX_PROMPT_CHARS})"
+        )
 
     # Call LLM
     response = call_llm_with_smart_routing(full_prompt, debug_id=debug_id, api_key=api_key)

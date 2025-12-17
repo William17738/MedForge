@@ -19,8 +19,23 @@ from config import (
     NUM_PROCESSES,
     EXERCISES_CHAPTER_SUFFIX,
     LEGACY_EXERCISES_CHAPTER_SUFFIXES,
+    MAX_PROMPT_CHARS,
 )
-from utils_text import normalize_text
+from utils_text import normalize_text, truncate_text
+
+
+MIN_VALID_CACHE_BYTES = 100
+
+
+def _is_valid_markdown_cache(path: Path) -> bool:
+    try:
+        if path.stat().st_size < MIN_VALID_CACHE_BYTES:
+            return False
+        with path.open("r", encoding="utf-8") as handle:
+            head = handle.read(4096).lstrip("\ufeff")
+        return head.strip().startswith("#")
+    except Exception:
+        return False
 
 
 def _maybe_migrate_legacy_exercises_output(out_dir: Path, chapter_id: str, chapter_name: str) -> None:
@@ -177,6 +192,15 @@ def ask_llm_with_repair(q: dict, tb_context: str, subject: str, chapter_name: st
     options_norm = {k: normalize_text(v) for k, v in q.get("options", {}).items()}
     debug_id_base = f"{subject}-{chapter_name}-Q{q['id']}"
 
+    tb_context = normalize_text(tb_context)
+    tb_len = len(tb_context)
+    tb_context, tb_truncated = truncate_text(tb_context, MAX_PROMPT_CHARS)
+    if tb_truncated:
+        print(
+            f"[BRUSH] WARN: {debug_id_base} truncated tb_context "
+            f"{tb_len} -> {len(tb_context)} chars (limit {MAX_PROMPT_CHARS})"
+        )
+
     last_error = ""
     last_raw_resp = ""
 
@@ -215,6 +239,13 @@ Please generate a JSON solution following the Exercise Processing Protocol.
 """
 
         full_prompt = f"{SYSTEM_PROMPT}\n\n{user_prompt}"
+        prompt_len = len(full_prompt)
+        full_prompt, prompt_truncated = truncate_text(full_prompt, MAX_PROMPT_CHARS)
+        if prompt_truncated:
+            print(
+                f"[BRUSH] WARN: {debug_id} truncated full_prompt "
+                f"{prompt_len} -> {len(full_prompt)} chars (limit {MAX_PROMPT_CHARS})"
+            )
 
         resp = call_llm_with_smart_routing(full_prompt, debug_id, api_key=api_key)
         if not resp:
@@ -416,8 +447,14 @@ def assemble_chapter_from_cache(
     out_file = out_dir / f"{chapter_id}_{chapter_name}{EXERCISES_CHAPTER_SUFFIX}.md"
 
     if out_file.exists():
-        print(f"[SKIP-ASSEMBLE] {out_file} already exists, skipping assembly.")
-        return
+        if _is_valid_markdown_cache(out_file):
+            print(f"[SKIP-ASSEMBLE] {out_file} valid cache exists, skipping assembly.")
+            return
+        print(f"[WARN] Invalid cache {out_file.name}, removing and reprocessing")
+        try:
+            out_file.unlink()
+        except Exception as e:
+            print(f"[WARN] Failed to remove invalid cache {out_file.name}: {e}")
 
     q_file = struct_dir / f"{chapter_id}_{chapter_name}_questions.json"
     if not q_file.exists():
@@ -559,7 +596,20 @@ def run_subject_questions_global(subject: str) -> None:
             tb_context = tb_file_content.read_text(encoding="utf-8")[:2000]
         tb_context = normalize_text(tb_context)
 
-        done_ids = {int(p.stem) for p in cache_dir.glob("*.md")}
+        done_ids = set()
+        for cache_path in cache_dir.glob("*.md"):
+            if not _is_valid_markdown_cache(cache_path):
+                print(f"[WARN] Invalid cache {cache_path.name}, removing and reprocessing")
+                try:
+                    cache_path.unlink()
+                except Exception as e:
+                    print(f"[WARN] Failed to remove invalid cache {cache_path.name}: {e}")
+                continue
+
+            try:
+                done_ids.add(int(cache_path.stem))
+            except ValueError:
+                continue
         pending_questions = [q for q in questions if q["id"] not in done_ids]
 
         for q in pending_questions:
@@ -645,8 +695,14 @@ def generate_explanations(subject, chapter_id, chapter_name, api_key=None):
     _maybe_migrate_legacy_exercises_output(out_dir, chapter_id, chapter_name)
     out_file = out_dir / f"{chapter_id}_{chapter_name}{EXERCISES_CHAPTER_SUFFIX}.md"
     if out_file.exists():
-        print(f"[SKIP] {out_file} already exists, skipping chapter.")
-        return
+        if _is_valid_markdown_cache(out_file):
+            print(f"[SKIP] {out_file} valid cache exists, skipping chapter.")
+            return
+        print(f"[WARN] Invalid cache {out_file.name}, removing and reprocessing")
+        try:
+            out_file.unlink()
+        except Exception as e:
+            print(f"[WARN] Failed to remove invalid cache {out_file.name}: {e}")
 
     q_file = struct_dir / f"{chapter_id}_{chapter_name}_questions.json"
 
@@ -669,7 +725,20 @@ def generate_explanations(subject, chapter_id, chapter_name, api_key=None):
     tb_context = normalize_text(tb_context)
 
     # Phase 2: Per-question cache filtering
-    done_ids = {int(p.stem) for p in cache_dir.glob("*.md")}
+    done_ids = set()
+    for cache_path in cache_dir.glob("*.md"):
+        if not _is_valid_markdown_cache(cache_path):
+            print(f"[WARN] Invalid cache {cache_path.name}, removing and reprocessing")
+            try:
+                cache_path.unlink()
+            except Exception as e:
+                print(f"[WARN] Failed to remove invalid cache {cache_path.name}: {e}")
+            continue
+
+        try:
+            done_ids.add(int(cache_path.stem))
+        except ValueError:
+            continue
     pending_questions = [q for q in questions if q["id"] not in done_ids]
 
     print(f"[{chapter_name}] Total: {len(questions)}, Cached: {len(done_ids)}, Pending: {len(pending_questions)} (parallel {THREADS_PER_PROCESS})...")

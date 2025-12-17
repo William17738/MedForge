@@ -8,6 +8,9 @@ import unicodedata
 import re
 
 
+TRUNCATION_MARKER = "[...truncated]"
+
+
 def normalize_text(text: str) -> str:
     """
     Normalize text with enhanced cleaning for OCR and document processing.
@@ -43,6 +46,30 @@ def normalize_text(text: str) -> str:
     text = "".join(ch for ch in text if ch.isprintable() or ch in "\n\r\t")
 
     return text.strip()
+
+
+def truncate_text(text: str, max_chars: int, marker: str = TRUNCATION_MARKER) -> tuple[str, bool]:
+    """
+    Truncate text to a maximum character length.
+
+    Keeps the beginning of the text and appends a marker when truncation occurs.
+
+    Returns:
+        (truncated_text, was_truncated)
+    """
+    if not text:
+        return "", False
+
+    if max_chars is None or max_chars <= 0:
+        return marker[: max(0, max_chars or 0)], True
+
+    if len(text) <= max_chars:
+        return text, False
+
+    if max_chars <= len(marker):
+        return marker[:max_chars], True
+
+    return text[: max_chars - len(marker)] + marker, True
 
 
 def extract_chapter_number(text: str) -> int | None:

@@ -97,6 +97,9 @@ ROUTING_CONFIG = {
 # Processing Configuration
 # =============================================================================
 
+# Hard cap for characters sent to LLMs to prevent token overflow/cost spikes.
+MAX_PROMPT_CHARS = 30000
+
 MAX_RETRIES = 3
 RETRY_DELAY = 2
 

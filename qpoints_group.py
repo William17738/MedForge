@@ -10,9 +10,23 @@ import re
 from pathlib import Path
 
 from llm_client import call_llm_with_smart_routing
-from config import OUTPUT_DIR
+from config import OUTPUT_DIR, MAX_PROMPT_CHARS
 from utils_fs import atomic_write_text
-from utils_text import normalize_text
+from utils_text import normalize_text, truncate_text
+
+
+MIN_VALID_CACHE_BYTES = 100
+
+
+def _is_valid_markdown_cache(path: Path) -> bool:
+    try:
+        if path.stat().st_size < MIN_VALID_CACHE_BYTES:
+            return False
+        with path.open("r", encoding="utf-8") as handle:
+            head = handle.read(4096).lstrip("\ufeff")
+        return head.strip().startswith("#")
+    except Exception:
+        return False
 
 
 SYSTEM_PROMPT = """You are an educational content specialist responsible for extracting key knowledge points.
@@ -87,9 +101,16 @@ def generate_question_based_points(
 
     # Chapter-level caching
     out_file = out_dir / f"{chapter_id}_{chapter_name}_key_points.md"
-    if out_file.exists() and out_file.stat().st_size > 0:
-        print(f"[QPOINTS] SKIP: {out_file.name} already exists")
-        return out_file
+    if out_file.exists():
+        if _is_valid_markdown_cache(out_file):
+            print(f"[QPOINTS] SKIP: {out_file.name} valid cache exists")
+            return out_file
+
+        print(f"[QPOINTS] WARN: Invalid cache {out_file.name}, removing and reprocessing")
+        try:
+            out_file.unlink()
+        except Exception as e:
+            print(f"[QPOINTS] WARN: Failed to remove invalid cache {out_file.name}: {e}")
 
     # Load questions
     q_file = struct_dir / f"{chapter_id}_{chapter_name}_questions.json"
@@ -122,19 +143,65 @@ def generate_question_based_points(
         )
     q_text = "\n\n".join(q_blocks)
 
+    debug_id = f"QPOINTS-{subject}-{chapter_id}"
+
+    # Enforce prompt size limits by truncating the largest components first.
+    prompt_template = """
+================= Chapter Questions =================
+{q_text}
+
+================= Textbook Content =================
+{textbook_text}
+
+Please generate a key points summary for this chapter, including the question mapping table.
+"""
+    overhead_prompt = SYSTEM_PROMPT + "\n\n" + prompt_template.strip().format(q_text="", textbook_text="")
+    remaining_budget = max(0, MAX_PROMPT_CHARS - len(overhead_prompt))
+
+    textbook_text_for_prompt = (
+        textbook_text
+        or "(Textbook content not available - summarize based on questions only)"
+    )
+
+    if textbook_text:
+        q_budget = int(remaining_budget * 0.65)
+        tb_budget = max(0, remaining_budget - q_budget)
+    else:
+        tb_budget = min(len(textbook_text_for_prompt), remaining_budget)
+        q_budget = max(0, remaining_budget - tb_budget)
+
+    q_len = len(q_text)
+    q_text, q_truncated = truncate_text(q_text, q_budget)
+    if q_truncated:
+        print(f"[QPOINTS] WARN: {debug_id} truncated q_text {q_len} -> {len(q_text)} chars")
+
+    tb_len = len(textbook_text_for_prompt)
+    textbook_text_for_prompt, tb_truncated = truncate_text(textbook_text_for_prompt, tb_budget)
+    if tb_truncated:
+        print(
+            f"[QPOINTS] WARN: {debug_id} truncated textbook_text "
+            f"{tb_len} -> {len(textbook_text_for_prompt)} chars"
+        )
+
     # Build prompt
     user_prompt = f"""
 ================= Chapter Questions =================
 {q_text}
 
 ================= Textbook Content =================
-{textbook_text or "(Textbook content not available - summarize based on questions only)"}
+{textbook_text_for_prompt}
 
 Please generate a key points summary for this chapter, including the question mapping table.
 """
 
     full_prompt = SYSTEM_PROMPT + "\n\n" + user_prompt
-    debug_id = f"QPOINTS-{subject}-{chapter_id}"
+    prompt_len = len(full_prompt)
+    full_prompt, prompt_truncated = truncate_text(full_prompt, MAX_PROMPT_CHARS)
+    if prompt_truncated:
+        print(
+            f"[QPOINTS] WARN: {debug_id} truncated full_prompt "
+            f"{prompt_len} -> {len(full_prompt)} chars (limit {MAX_PROMPT_CHARS})"
+        )
 
     # Call LLM
     response = call_llm_with_smart_routing(full_prompt, debug_id, api_key=api_key)
